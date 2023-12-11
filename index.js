@@ -4,14 +4,13 @@ const help = require('./const.js');
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-
-let awaitingCity = false; // Перемения для хранения состояния чата
+let forecastInfo = {};
 
 bot.start((ctx) => {
     const chatId = ctx.chat.id;
     const messageId = ctx.message.message_id;
-    ctx.reply(`Hello, ${ctx.message.from.first_name ? ctx.message.from.first_name : 'innocent'}! 
-                ${help.greetings}`);
+    ctx.reply(`Hello, ${ctx.message.from.first_name ? ctx.message.from.first_name : 'innocent'}! ${help.greetings}`);
+    ctx.replyWithHTML(`Write the <code>/weather</code> to work with me!!`)
 });
 
 bot.help((ctx) => ctx.reply(help.commands));
@@ -22,45 +21,52 @@ async function fetchApi(city, key) {
     return await response.json();
 }
 
-bot.command('weather', (ctx) => {
+bot.command('weather', async (ctx) => {
+  ctx.reply(`Hello, enter the city name and i'll give u the weather forecast!`)
+  bot.on(`message`, async(ctx) => {
+    const city = ctx.message.text;
 
-    awaitingCity = true;
+    const data = await fetchApi(city, process.env.API_TOKEN);
 
-    ctx.reply('Please enter the city for weather information.');
-});
+    if(data.cod === '404') {
+        ctx.reply(`City not found, please write another one.`);
+    } else {
+        const { weather, main, wind } = data;
+        forecastInfo.temperature = main
+        forecastInfo.weather = weather[0]
+        forecastInfo.wind = wind
 
+        console.log(forecastInfo.temperature)
 
-bot.on('text', async (ctx) => {
-    try {
-        if (awaitingCity) {
+        console.log(`dataCreator >> temp >> ${JSON.stringify(...Object.values(forecastInfo.temperature))}`)
+        console.log(`dataCreator >> weather >> ${JSON.stringify(...Object.values(forecastInfo.weather))}`)
+        console.log(`dataCreator >> wind >> ${JSON.stringify(...Object.values(forecastInfo.wind))}`)
 
-            const city = ctx.message.text;
+        await ctx.replyWithHTML(`<b>Forecast:</b>`, Markup.inlineKeyboard([
+            [Markup.button.callback('Get temperature', 'temperature')],
+            [Markup.button.callback('Get weather', 'weather')],
+            [Markup.button.callback('Get wind', 'wind')],
+        ]))
 
-            awaitingCity = false;
-
-            const data = await fetchApi(city, process.env.API_TOKEN);
-            console.log(data);
-
-            if (data.weather && data.main && data.wind) {
-                const { weather, main, wind } = data;
-                const { temp, feels_like, temp_min, temp_max, humidity } = main;
-                const { speed } = wind;
-                const forecast = weather[0].main;
-                const description = weather[0].description;
-
-                await ctx.replyWithHTML(help.temperatureForecast(temp, feels_like, temp_min, temp_max, humidity));
-                await ctx.replyWithHTML(help.weatherForecast(forecast, description))
-                await ctx.replyWithHTML(help.windForecast(speed))
-             ctx.reply(`That's all; Just write the command /weather to get the weather forecast. I wish you luck :DD`);
-            } else {
-                ctx.reply('City not found, please write another one.');
-            }
-        }
-    } catch (error) {
-        console.log(error);
+        createAction('temperature', help.temperatureForecast(...Object.values(forecastInfo.temperature)))
+        createAction('weather', help.weatherForecast(...Object.values(forecastInfo.weather)))
+        createAction('wind', help.windForecast(...Object.values(forecastInfo.wind)))
     }
-});
+  })
+})
 
+function createAction(trigger, text) {
+    bot.action(trigger, async (ctx) => {
+        try {
+            await ctx.answerCbQuery();
+            await ctx.replyWithHTML(text, {
+                disable_web_page_preview: true
+            });
+        } catch (error) {
+            console.log(error);
+        }
+    });
+}
 
 bot.launch();
 
